@@ -11,100 +11,113 @@ export default function Home() {
   const [speed, setSpeed] = useState(1.05);
   const [removeHiss, setRemoveHiss] = useState(true);
 
- async function handleSubmit(e: React.FormEvent) {
-  e.preventDefault();
-  const file = fileRef.current?.files?.[0];
-  if (!file) { alert("Izaberi audio fajl ili snimi."); return; }
-
-  setBusy(true);
-  setAudioUrl(null);
-
-  try {
-    // Start – tražimo jobId
-    const fd = new FormData();
-    fd.append("audio", file);
-    fd.append("pitch", String(pitch));
-    fd.append("speed", String(speed));
-    fd.append("remove_hiss", String(removeHiss));
-
-    const start = await fetch("/api/jobs/start", { method: "POST", body: fd });
-    if (!start.ok) {
-      const j = await start.json().catch(() => ({}));
-      throw new Error(j.error || "Start error");
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      alert("Izaberi audio fajl ili snimi.");
+      return;
     }
-    const { jobId } = await start.json();
-
-    // Poll status dok ne stigne audio
-    let tries = 0;
-    const maxTries = 120; // do ~4 min (2s * 120)
-    while (tries < maxTries) {
-      const res = await fetch(`/api/jobs/status?id=${encodeURIComponent(jobId)}`);
-      const ct = res.headers.get("content-type") || "";
-      if (ct.startsWith("audio/")) {
-        const blob = await res.blob();
-        setAudioUrl(URL.createObjectURL(blob));
-        setBusy(false);
-        return;
-      } else {
-        // JSON sa statusom
-        await new Promise(r => setTimeout(r, 2000));
-        tries++;
-      }
-    }
-    throw new Error("Isteklo čekanje. Pokušaj kraći snimak ili probaj ponovo.");
-  } catch (err: any) {
-    alert("Greška: " + (err?.message || "nepoznata"));
-    setBusy(false);
-  }
-}
-
-
-    const fd = new FormData();
-    fd.append("audio", file);
-    fd.append("pitch", String(pitch));
-    fd.append("speed", String(speed));
-    fd.append("remove_hiss", String(removeHiss));
 
     setBusy(true);
     setAudioUrl(null);
 
-    const res = await fetch("/api/convert", { method: "POST", body: fd });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      alert("Greška: " + (j.error || res.statusText));
-      setBusy(false);
-      return;
-    }
+    try {
+      // 1) START – tražimo jobId
+      const fd = new FormData();
+      fd.append("audio", file);
+      fd.append("pitch", String(pitch));
+      fd.append("speed", String(speed));
+      fd.append("remove_hiss", String(removeHiss));
 
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    setAudioUrl(url);
-    setBusy(false);
+      const start = await fetch("/api/jobs/start", { method: "POST", body: fd });
+      if (!start.ok) {
+        let msg = "Start error";
+        try { msg = (await start.json()).error ?? msg; } catch {}
+        throw new Error(msg);
+      }
+      const { jobId } = await start.json();
+
+      // 2) POLL – dok ne stigne audio
+      let tries = 0;
+      const MAX_TRIES = 120;      // ~4 min ako je interval 2s
+      const INTERVAL_MS = 2000;
+
+      while (tries < MAX_TRIES) {
+        const res = await fetch(`/api/jobs/status?id=${encodeURIComponent(jobId)}`);
+        const ct = res.headers.get("content-type") || "";
+
+        if (ct.startsWith("audio/")) {
+          const blob = await res.blob();
+          setAudioUrl(URL.createObjectURL(blob));
+          setBusy(false);
+          return;
+        }
+
+        // nije audio – očekujemo JSON sa statusom
+        await new Promise((r) => setTimeout(r, INTERVAL_MS));
+        tries++;
+      }
+
+      throw new Error("Isteklo čekanje. Pokušaj kraći snimak ili probaj ponovo.");
+    } catch (err: any) {
+      alert("Greška: " + (err?.message || "nepoznata"));
+      setBusy(false);
+    }
   }
 
   return (
     <main className="container">
       <h1 style={{ fontSize: 28, marginBottom: 8 }}>🦜 Papagaj glas – profesionalni demo</h1>
-      <p style={{ opacity: .8, marginBottom: 24 }}>
+      <p style={{ opacity: 0.8, marginBottom: 24 }}>
         Upload ili snimi glas → sajt poziva tvoj Hugging Face Space → dobijaš papagaj verziju.
       </p>
 
       <form onSubmit={handleSubmit} className="card">
         <div className="row">
-          <input ref={fileRef} type="file" accept="audio/*" />
-          <label>Pitch (semitoni): {pitch}
-            <input className="range" type="range" min={-4} max={12} step={1} value={pitch}
-                  onChange={e => setPitch(Number(e.target.value))} />
-          </label>
-          <label>Brzina: {speed.toFixed(2)}
-            <input className="range" type="range" min={0.9} max={1.2} step={0.01} value={speed}
-                  onChange={e => setSpeed(Number(e.target.value))} />
-          </label>
+          <input ref={fileRef} type="file" accept="audio/*" disabled={busy} />
+
           <label>
-            <input type="checkbox" checked={removeHiss} onChange={e => setRemoveHiss(e.target.checked)} />
+            Pitch (semitoni): {pitch}
+            <input
+              className="range"
+              type="range"
+              min={-4}
+              max={12}
+              step={1}
+              value={pitch}
+              onChange={(e) => setPitch(Number(e.target.value))}
+              disabled={busy}
+            />
+          </label>
+
+          <label>
+            Brzina: {speed.toFixed(2)}
+            <input
+              className="range"
+              type="range"
+              min={0.9}
+              max={1.2}
+              step={0.01}
+              value={speed}
+              onChange={(e) => setSpeed(Number(e.target.value))}
+              disabled={busy}
+            />
+          </label>
+
+          <label>
+            <input
+              type="checkbox"
+              checked={removeHiss}
+              onChange={(e) => setRemoveHiss(e.target.checked)}
+              disabled={busy}
+            />
             {" "}Ukloni pištanje (notch)
           </label>
-          <button disabled={busy}>{busy ? "Obrada..." : "Pretvori"}</button>
+
+          <button type="submit" disabled={busy}>
+            {busy ? "Obrada..." : "Pretvori"}
+          </button>
         </div>
       </form>
 
