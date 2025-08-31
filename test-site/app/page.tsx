@@ -11,10 +11,53 @@ export default function Home() {
   const [speed, setSpeed] = useState(1.05);
   const [removeHiss, setRemoveHiss] = useState(true);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const file = fileRef.current?.files?.[0];
-    if (!file) { alert("Izaberi audio fajl ili snimi."); return; }
+ async function handleSubmit(e: React.FormEvent) {
+  e.preventDefault();
+  const file = fileRef.current?.files?.[0];
+  if (!file) { alert("Izaberi audio fajl ili snimi."); return; }
+
+  setBusy(true);
+  setAudioUrl(null);
+
+  try {
+    // Start – tražimo jobId
+    const fd = new FormData();
+    fd.append("audio", file);
+    fd.append("pitch", String(pitch));
+    fd.append("speed", String(speed));
+    fd.append("remove_hiss", String(removeHiss));
+
+    const start = await fetch("/api/jobs/start", { method: "POST", body: fd });
+    if (!start.ok) {
+      const j = await start.json().catch(() => ({}));
+      throw new Error(j.error || "Start error");
+    }
+    const { jobId } = await start.json();
+
+    // Poll status dok ne stigne audio
+    let tries = 0;
+    const maxTries = 120; // do ~4 min (2s * 120)
+    while (tries < maxTries) {
+      const res = await fetch(`/api/jobs/status?id=${encodeURIComponent(jobId)}`);
+      const ct = res.headers.get("content-type") || "";
+      if (ct.startsWith("audio/")) {
+        const blob = await res.blob();
+        setAudioUrl(URL.createObjectURL(blob));
+        setBusy(false);
+        return;
+      } else {
+        // JSON sa statusom
+        await new Promise(r => setTimeout(r, 2000));
+        tries++;
+      }
+    }
+    throw new Error("Isteklo čekanje. Pokušaj kraći snimak ili probaj ponovo.");
+  } catch (err: any) {
+    alert("Greška: " + (err?.message || "nepoznata"));
+    setBusy(false);
+  }
+}
+
 
     const fd = new FormData();
     fd.append("audio", file);
